@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bell, BellOff, Filter, Search, Plus, LogOut } from 'lucide-react';
+import { Bell, BellOff, Filter, Search, Plus, LogOut, Sun, Moon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +12,7 @@ import { Notification, UserOnboardingData } from '@/types/notification';
 import { useToast } from '@/hooks/use-toast';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useAuth } from '@/hooks/useAuth';
+import { Toggle } from '@/components/ui/toggle';
 
 export const NotificationsScreen = () => {
   const [filteredNotifications, setFilteredNotifications] = useState<Notification[]>([]);
@@ -125,6 +126,20 @@ export const NotificationsScreen = () => {
             </div>
             {user && (
               <div className="flex items-center gap-3">
+                <Toggle
+                  aria-label="Toggle dark mode"
+                  onClick={() => {
+                    const html = document.documentElement;
+                    html.classList.toggle('dark');
+                  }}
+                  className="h-8 w-8 flex items-center justify-center border border-input bg-background hover:bg-muted transition-colors"
+                >
+                  {document.documentElement.classList.contains('dark') ? (
+                    <Sun className="h-5 w-5 text-primary" />
+                  ) : (
+                    <Moon className="h-5 w-5 text-primary" />
+                  )}
+                </Toggle>
                 <span className="text-sm text-muted-foreground">
                   {user.email}
                 </span>
@@ -158,7 +173,7 @@ export const NotificationsScreen = () => {
               </div>
 
               {/* Filter */}
-              <Select value={filterType} onValueChange={(value: any) => setFilterType(value)}>
+              <Select value={filterType} onValueChange={(value: 'all' | 'unread' | 'read') => setFilterType(value)}>
                 <SelectTrigger className="w-40">
                   <Filter className="h-4 w-4 mr-2" />
                   <SelectValue />
