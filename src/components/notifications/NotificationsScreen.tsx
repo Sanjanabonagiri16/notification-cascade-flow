@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Bell, BellOff, Filter, Search, Plus, LogOut, Sun, Moon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,17 @@ import { useToast } from '@/hooks/use-toast';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useAuth } from '@/hooks/useAuth';
 import { Toggle } from '@/components/ui/toggle';
+import { AnimatePresence, motion } from 'framer-motion';
+
+const notificationTypes = [
+  { label: 'All', value: 'all' },
+  { label: 'Messages', value: 'message' },
+  { label: 'Alerts', value: 'alert' },
+  { label: 'Tasks', value: 'task' },
+  { label: 'Updates', value: 'update' },
+];
+
+const PAGE_SIZE = 10;
 
 export const NotificationsScreen = () => {
   const [filteredNotifications, setFilteredNotifications] = useState<Notification[]>([]);
@@ -21,32 +32,80 @@ export const NotificationsScreen = () => {
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isOnboardingModalOpen, setIsOnboardingModalOpen] = useState(false);
+  const [category, setCategory] = useState<'all' | 'message' | 'alert' | 'task' | 'update'>('all');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const loaderRef = useRef<HTMLDivElement | null>(null);
   
   const { user, signOut } = useAuth();
-  const { notifications, loading, markAsRead, markAllAsRead, addSampleNotification } = useNotifications();
+  const { notifications, loading, markAsRead, markAllAsRead, addSampleNotification, setNotifications, deleteNotification } = useNotifications();
   const { toast } = useToast();
 
   // Filter notifications
   useEffect(() => {
     let filtered = notifications;
-
-    // Apply search filter
+    // Category filter
+    if (category !== 'all') {
+      filtered = filtered.filter(n => n.type === category);
+    }
+    // Search filter
     if (searchQuery) {
-      filtered = filtered.filter(n => 
+      filtered = filtered.filter(n =>
         n.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         n.message.toLowerCase().includes(searchQuery.toLowerCase())
       );
     }
-
-    // Apply type filter
+    // Read/unread/all filter
     if (filterType === 'unread') {
       filtered = filtered.filter(n => !n.isRead);
     } else if (filterType === 'read') {
       filtered = filtered.filter(n => n.isRead);
-    }
-
+    } // if 'all', do nothing (show all)
+    // Sort: pinned > unread > high-priority > createdAt desc
+    filtered = filtered.sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      if (!a.isRead && b.isRead) return -1;
+      if (a.isRead && !b.isRead) return 1;
+      if (a.priority === 'high' && b.priority !== 'high') return -1;
+      if (a.priority !== 'high' && b.priority === 'high') return 1;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
     setFilteredNotifications(filtered);
-  }, [notifications, searchQuery, filterType]);
+  }, [notifications, searchQuery, filterType, category]);
+
+  // Paginate filteredNotifications
+  const paginatedNotifications = filteredNotifications.slice(0, page * PAGE_SIZE);
+
+  // Infinite scroll observer
+  const handleObserver = useCallback((entries: IntersectionObserverEntry[]) => {
+    const target = entries[0];
+    if (target.isIntersecting && hasMore) {
+      if (paginatedNotifications.length < filteredNotifications.length) {
+        setPage((prev) => prev + 1);
+      } else {
+        setHasMore(false);
+      }
+    }
+  }, [hasMore, paginatedNotifications.length, filteredNotifications.length]);
+
+  useEffect(() => {
+    setPage(1);
+    setHasMore(true);
+  }, [filteredNotifications]);
+
+  useEffect(() => {
+    const option = {
+      root: null,
+      rootMargin: '20px',
+      threshold: 1.0
+    };
+    const observer = new window.IntersectionObserver(handleObserver, option);
+    if (loaderRef.current) observer.observe(loaderRef.current);
+    return () => {
+      if (loaderRef.current) observer.unobserve(loaderRef.current);
+    };
+  }, [handleObserver]);
 
   const handleNotificationClick = (notification: Notification) => {
     setSelectedNotification(notification);
@@ -59,6 +118,11 @@ export const NotificationsScreen = () => {
   };
 
   const handleMarkAsRead = (notificationId: string) => {
+    console.log('handleMarkAsRead called with notificationId:', notificationId);
+    if (!notificationId || typeof notificationId !== 'string') {
+      console.warn('Skipping markAsRead for invalid notificationId:', notificationId);
+      return;
+    }
     markAsRead(notificationId);
   };
 
@@ -91,6 +155,10 @@ export const NotificationsScreen = () => {
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
+  const handlePinToggle = (notificationId: string) => {
+    setNotifications((prev) => prev.map(n => n.id === notificationId ? { ...n, pinned: !n.pinned } : n));
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -112,9 +180,9 @@ export const NotificationsScreen = () => {
               <div className="relative">
                 <Bell className="h-8 w-8 text-primary" />
                 {unreadCount > 0 && (
-                  <Badge className="absolute -top-2 -right-2 px-2 py-1 text-xs bg-destructive text-destructive-foreground">
+                  <span className="absolute -top-2 -right-2 px-2 py-1 text-xs bg-destructive text-destructive-foreground rounded-full">
                     {unreadCount}
-                  </Badge>
+                  </span>
                 )}
               </div>
               <div>
@@ -155,6 +223,18 @@ export const NotificationsScreen = () => {
               </div>
             )}
           </div>
+          {/* Category Tabs */}
+          <div className="flex gap-2 mt-4">
+            {notificationTypes.map(type => (
+              <button
+                key={type.value}
+                className={`px-3 py-1 rounded-full text-sm font-medium transition-colors border ${category === type.value ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted text-muted-foreground border-transparent'} shadow-sm`}
+                onClick={() => setCategory(type.value as typeof category)}
+              >
+                {type.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Controls */}
@@ -173,7 +253,7 @@ export const NotificationsScreen = () => {
               </div>
 
               {/* Filter */}
-              <Select value={filterType} onValueChange={(value: 'all' | 'unread' | 'read') => setFilterType(value)}>
+              <Select value={filterType} onValueChange={(value) => setFilterType(value as 'all' | 'unread' | 'read')}>
                 <SelectTrigger className="w-40">
                   <Filter className="h-4 w-4 mr-2" />
                   <SelectValue />
@@ -197,20 +277,37 @@ export const NotificationsScreen = () => {
                 <Plus className="h-4 w-4" />
                 Add Sample
               </Button>
-              {unreadCount > 0 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleMarkAllAsRead}
-                  className="gap-2"
-                >
-                  <BellOff className="h-4 w-4" />
-                  Mark All Read
-                </Button>
-              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleMarkAllAsRead}
+                className="gap-2"
+              >
+                <BellOff className="h-4 w-4" />
+                Mark All Read
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  // Remove all read notifications
+                  const unread = notifications.filter(n => !n.isRead);
+                  // setNotifications(unread); // implement this in your hook
+                  toast({ title: 'Cleared read notifications' });
+                }}
+                className="gap-2"
+              >
+                🧹
+                Clear Read
+              </Button>
             </div>
           </div>
         </Card>
+
+        {/* Debugging output */}
+        <div className="text-xs text-muted-foreground mb-2">
+          Filter: {filterType} | Category: {category} | Showing: {filteredNotifications.length}
+        </div>
 
         {/* Notifications List */}
         <div className="space-y-3">
@@ -219,28 +316,39 @@ export const NotificationsScreen = () => {
               <Bell className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-lg font-medium mb-2">No notifications found</h3>
               <p className="text-muted-foreground">
-                {searchQuery || filterType !== 'all' 
-                  ? 'Try adjusting your search or filter criteria'
-                  : 'You\'re all caught up! No new notifications at the moment.'
-                }
+                {searchQuery || filterType !== 'all' || category !== 'all'
+                  ? 'Try adjusting your search, filter, or category.'
+                  : 'You\'re all caught up! No new notifications at the moment.'}
               </p>
             </Card>
           ) : (
-            filteredNotifications.map((notification) => (
-              <NotificationItem
-                key={notification.id}
-                notification={notification}
-                onClick={handleNotificationClick}
-                onMarkAsRead={handleMarkAsRead}
-              />
-            ))
+            <AnimatePresence>
+              <motion.div
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 30 }}
+                transition={{ duration: 0.4, ease: 'easeOut' }}
+                className="space-y-3"
+              >
+                {filteredNotifications.filter(n => n.id && typeof n.id === 'string').map((notification) => (
+                  <NotificationItem
+                    key={notification.id}
+                    notification={notification}
+                    onClick={() => handleNotificationClick(notification)}
+                    onMarkAsRead={() => handleMarkAsRead(notification.id)}
+                    onPinToggle={handlePinToggle}
+                    onDelete={deleteNotification}
+                  />
+                ))}
+              </motion.div>
+            </AnimatePresence>
           )}
         </div>
 
         {/* Summary */}
         {notifications.length > 0 && (
           <div className="mt-8 text-center text-sm text-muted-foreground">
-            Showing {filteredNotifications.length} of {notifications.length} notifications
+            Showing {paginatedNotifications.length} of {notifications.length} notifications
             {unreadCount > 0 && ` • ${unreadCount} unread`}
           </div>
         )}
@@ -248,7 +356,7 @@ export const NotificationsScreen = () => {
 
       {/* Modals */}
       <NotificationModal
-        notification={selectedNotification}
+        notification={selectedNotification && selectedNotification.id && typeof selectedNotification.id === 'string' ? selectedNotification : null}
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
       />

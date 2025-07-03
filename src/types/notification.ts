@@ -1,13 +1,18 @@
-export interface Notification {
+export type Notification = {
   id: string;
-  type: 'info' | 'success' | 'warning' | 'error' | 'user_onboarding' | 'general';
   title: string;
   message: string;
-  timestamp: Date;
   isRead: boolean;
-  actionType?: 'modal' | 'redirect' | 'user_onboarding';
-  actionData?: any;
-}
+  createdAt: string;
+  type: 'message' | 'alert' | 'task' | 'update';
+  priority?: 'normal' | 'high';
+  pinned?: boolean;
+  fromUser?: {
+    name: string;
+    avatarUrl?: string;
+  };
+  actionType?: string;
+};
 
 export interface UserOnboardingData {
   step1: {
