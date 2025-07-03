@@ -24,8 +24,29 @@ export const NotificationModal = ({ notification, isOpen, onClose }: Notificatio
     }
   };
 
-  const formatTimestamp = (timestamp: Date) => {
-    return timestamp.toLocaleString('en-US', {
+  const formatTimestamp = (timestamp?: string | Date) => {
+    if (!timestamp) {
+      console.warn('NotificationModal: No timestamp provided.');
+      return 'Unknown';
+    }
+    let date: Date | null = null;
+    if (typeof timestamp === 'string') {
+      if (!timestamp.trim()) {
+        console.warn('NotificationModal: Empty timestamp string received.');
+        return 'Unknown';
+      }
+      date = new Date(timestamp);
+    } else if (timestamp instanceof Date) {
+      date = timestamp;
+    } else {
+      console.warn('NotificationModal: Invalid timestamp type received:', timestamp);
+      return 'Unknown';
+    }
+    if (!date || isNaN(date.getTime())) {
+      console.warn('NotificationModal: Invalid date value received:', timestamp);
+      return 'Unknown';
+    }
+    return date.toLocaleString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -58,7 +79,7 @@ export const NotificationModal = ({ notification, isOpen, onClose }: Notificatio
             </Badge>
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
               <Clock className="h-3 w-3" />
-              {formatTimestamp(notification.timestamp)}
+              {formatTimestamp(typeof notification.createdAt === 'string' && notification.createdAt.trim() ? notification.createdAt : undefined)}
             </div>
           </div>
         </DialogHeader>
